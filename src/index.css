@@ -1,0 +1,146 @@
+@import "tailwindcss";
+
+/* ── Viewport ────────────────────────────────────────────────────────────── */
+.app-shell {
+  min-height: 100vh;
+  min-height: 100dvh;
+  position: relative;
+  overflow: hidden;
+}
+
+/* ── Safe area for buttons above home indicator ──────────────────────────── */
+.bottom-safe {
+  bottom: calc(1.25rem + env(safe-area-inset-bottom, 0px));
+}
+
+/* ── Starfield (pure CSS, no JS) ─────────────────────────────────────────── */
+.stars-layer {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  z-index: 0;
+}
+.stars-layer::before,
+.stars-layer::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background-image:
+    radial-gradient(1px 1px at 10%  15%, rgba(165,243,252,0.55) 0%, transparent 100%),
+    radial-gradient(1px 1px at 22%  72%, rgba(165,243,252,0.40) 0%, transparent 100%),
+    radial-gradient(1px 1px at 35%  40%, rgba(165,243,252,0.60) 0%, transparent 100%),
+    radial-gradient(1px 1px at 48%   8%, rgba(165,243,252,0.35) 0%, transparent 100%),
+    radial-gradient(1px 1px at 62%  88%, rgba(165,243,252,0.50) 0%, transparent 100%),
+    radial-gradient(1px 1px at 75%  30%, rgba(165,243,252,0.45) 0%, transparent 100%),
+    radial-gradient(1px 1px at 88%  60%, rgba(165,243,252,0.55) 0%, transparent 100%),
+    radial-gradient(1px 1px at  5%  50%, rgba(165,243,252,0.30) 0%, transparent 100%),
+    radial-gradient(1px 1px at 93%  20%, rgba(165,243,252,0.40) 0%, transparent 100%),
+    radial-gradient(1.5px 1.5px at 15% 85%, rgba(165,243,252,0.65) 0%, transparent 100%),
+    radial-gradient(1px 1px at 40%  58%, rgba(165,243,252,0.35) 0%, transparent 100%),
+    radial-gradient(1.5px 1.5px at 68%  42%, rgba(165,243,252,0.55) 0%, transparent 100%),
+    radial-gradient(1px 1px at 80%  75%, rgba(165,243,252,0.40) 0%, transparent 100%),
+    radial-gradient(1px 1px at 28%  25%, rgba(165,243,252,0.45) 0%, transparent 100%),
+    radial-gradient(1.5px 1.5px at 55%  95%, rgba(165,243,252,0.50) 0%, transparent 100%),
+    radial-gradient(1px 1px at  3%  90%, rgba(165,243,252,0.35) 0%, transparent 100%),
+    radial-gradient(1px 1px at 97%  45%, rgba(165,243,252,0.40) 0%, transparent 100%),
+    radial-gradient(1px 1px at 44%  75%, rgba(165,243,252,0.30) 0%, transparent 100%),
+    radial-gradient(1.5px 1.5px at 72%  12%, rgba(165,243,252,0.60) 0%, transparent 100%),
+    radial-gradient(1px 1px at 85%  92%, rgba(165,243,252,0.45) 0%, transparent 100%);
+  animation: drift 90s linear infinite;
+}
+.stars-layer::after {
+  background-size: 130% 130%;
+  animation-duration: 140s;
+  animation-direction: reverse;
+  opacity: 0.6;
+}
+@keyframes drift {
+  0%   { transform: translate(0, 0); }
+  25%  { transform: translate(-8px, -12px); }
+  50%  { transform: translate(12px, -6px); }
+  75%  { transform: translate(-6px, 10px); }
+  100% { transform: translate(0, 0); }
+}
+
+/* ── Scan-line overlay ───────────────────────────────────────────────────── */
+.scanlines {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  z-index: 1;
+  background: repeating-linear-gradient(
+    to bottom,
+    transparent 0px,
+    transparent 3px,
+    rgba(0, 0, 0, 0.07) 3px,
+    rgba(0, 0, 0, 0.07) 4px
+  );
+}
+
+/* ── Slow moving scanline sweep ─────────────────────────────────────────── */
+.scanline-sweep {
+  position: absolute;
+  left: 0;
+  right: 0;
+  height: 80px;
+  pointer-events: none;
+  z-index: 2;
+  background: linear-gradient(
+    to bottom,
+    transparent 0%,
+    rgba(34, 211, 238, 0.03) 40%,
+    rgba(34, 211, 238, 0.06) 50%,
+    rgba(34, 211, 238, 0.03) 60%,
+    transparent 100%
+  );
+  animation: scanline-move 8s linear infinite;
+}
+@keyframes scanline-move {
+  0%   { top: -80px; }
+  100% { top: 100%; }
+}
+
+/* ── Radial vignette ─────────────────────────────────────────────────────── */
+.vignette {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  z-index: 3;
+  background: radial-gradient(
+    ellipse 80% 80% at center,
+    transparent 40%,
+    rgba(0, 0, 0, 0.5) 100%
+  );
+}
+
+/* ── Corner grid lines (HUD feel) ───────────────────────────────────────── */
+.corner-tl,
+.corner-tr,
+.corner-bl,
+.corner-br {
+  position: absolute;
+  width: 28px;
+  height: 28px;
+  pointer-events: none;
+  z-index: 4;
+  opacity: 0.35;
+}
+.corner-tl { top: 16px; left: 16px; border-top: 1px solid #22d3ee; border-left: 1px solid #22d3ee; }
+.corner-tr { top: 16px; right: 16px; border-top: 1px solid #22d3ee; border-right: 1px solid #22d3ee; }
+.corner-bl { bottom: 16px; left: 16px; border-bottom: 1px solid #22d3ee; border-left: 1px solid #22d3ee; }
+.corner-br { bottom: 16px; right: 16px; border-bottom: 1px solid #22d3ee; border-right: 1px solid #22d3ee; }
+
+/* ── Listening bar visualizer (filler sound indicator) ───────────────────── */
+@keyframes bar-bounce {
+  0%, 100% { transform: scaleY(0.2); }
+  50%       { transform: scaleY(1.0); }
+}
+.viz-bar {
+  display: inline-block;
+  width: 3px;
+  border-radius: 2px;
+  background: #22d3ee;
+  transform-origin: bottom;
+  animation: bar-bounce var(--dur, 0.6s) ease-in-out infinite;
+  animation-delay: var(--delay, 0s);
+}

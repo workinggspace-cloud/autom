@@ -1,0 +1,47 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover" />
+    <meta name="theme-color" content="#000000" />
+    
+    <!-- SEO Meta Tags -->
+    <meta name="description" content="Autom - Your personal AI voice assistant." />
+    <meta name="keywords" content="AI, Voice Assistant, Personal Assistant, Autom" />
+    <meta name="author" content="Autom" />
+    
+    <!-- Open Graph / Facebook -->
+    <meta property="og:type" content="website" />
+    <meta property="og:url" content="https://autom.app/" />
+    <meta property="og:title" content="Autom | Personal Voice Assistant" />
+    <meta property="og:description" content="Autom is a powerful, personal AI voice assistant that runs as a PWA, always listening for its wake word while active." />
+    <meta property="og:image" content="/icon.png" />
+    
+    <!-- Twitter -->
+    <meta property="twitter:card" content="summary_large_image" />
+    <meta property="twitter:url" content="https://autom.app/" />
+    <meta property="twitter:title" content="Autom | Personal Voice Assistant" />
+    <meta property="twitter:description" content="Autom is a powerful, personal AI voice assistant that runs as a PWA, always listening for its wake word while active." />
+    <meta property="twitter:image" content="/icon.png" />
+
+    <!-- Icons & Manifest -->
+    <link rel="icon" type="image/png" href="/icon.png" />
+    <link rel="apple-touch-icon" href="/icon.png" />
+    <link rel="manifest" href="/manifest.json" />
+    
+    <title>Autom | Personal AI Voice Assistant</title>
+  </head>
+  <body class="bg-black text-white antialiased overflow-hidden">
+    <noscript>You need to enable JavaScript to run this app.</noscript>
+    <div id="root"></div>
+    <script>
+      if ('serviceWorker' in navigator) {
+        window.addEventListener('load', () => {
+          navigator.serviceWorker.register('/sw.js');
+        });
+      }
+    </script>
+    <script type="module" src="/src/main.tsx"></script>
+  </body>
+</html>
+
