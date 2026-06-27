@@ -217,12 +217,13 @@ export default function App() {
   const [user, setUser] = useState<User | null>(null);
   const [authLoading, setAuthLoading] = useState(HAS_FIREBASE);
   const [userName, setUserName] = useState<string>('');
-  // sign-in card: null = not decided, 'card' = showing, 'hidden' = dismissed
+  const userNameRef = useRef<string>('');
   const [signInCardState, setSignInCardState] = useState<'card' | 'badge' | 'hidden'>('card');
-  // name prompt shown after sign-in
   const [showNamePrompt, setShowNamePrompt] = useState(false);
   const [nameInput, setNameInput] = useState('');
   const [authBusy, setAuthBusy] = useState(false);
+  // Guard: true while Firestore is loading so save effects don't fire yet
+  const firestoreReadyRef = useRef(false);
 
   // ── Email auth state ───────────────────────────────────────────────────────
   type AuthView = 'options' | 'email-signin' | 'email-signup' | 'forgot';
@@ -240,8 +241,9 @@ export default function App() {
   useEffect(() => { pushToTalkRef.current = pushToTalk; }, [pushToTalk]);
   useEffect(() => { wakeWordRef.current = wakeWord; }, [wakeWord]);
   useEffect(() => { modeRef.current = mode; }, [mode]);
+  useEffect(() => { userNameRef.current = userName; }, [userName]);
 
-  // Persist changes (local storage fallback for guests)
+  // Persist changes to localStorage (always)
   useEffect(() => { storage.set('autom_profile', profile); }, [profile]);
   useEffect(() => { storage.setJSON('autom_history', sessionHistory.slice(-20)); }, [sessionHistory]);
   useEffect(() => { storage.set('autom_mode', mode); }, [mode]);
@@ -313,7 +315,11 @@ export default function App() {
       setAuthLoading(false);
       if (u) {
         setSignInCardState('hidden');
+        firestoreReadyRef.current = false; // block saves while loading
         await firestoreLoad(u.uid);
+        firestoreReadyRef.current = true;  // now safe to save
+      } else {
+        firestoreReadyRef.current = false;
       }
     });
     return unsub;
@@ -325,7 +331,6 @@ export default function App() {
     try {
       const result = await signInWithPopup(auth, googleProvider);
       const u = result.user;
-      // Check if new user (no name saved yet)
       const ref = doc(db, 'users', u.uid);
       const snap = await getDoc(ref);
       if (!snap.exists() || !snap.data()?.name) {
@@ -339,7 +344,16 @@ export default function App() {
   };
 
   const handleSignOut = async () => {
-    try { await signOut(auth); setUserName(''); setSignInCardState('card'); } catch {}
+    try {
+      await signOut(auth);
+      // Clear all in-memory state so next user starts fresh
+      setUserName(''); userNameRef.current = '';
+      setProfile(''); storage.set('autom_profile', '');
+      setHistory([]); storage.setJSON('autom_history', []);
+      setSignInCardState('card');
+      setAuthView('options');
+      firestoreReadyRef.current = false;
+    } catch {}
   };
 
   const handleNameSubmit = async () => {
@@ -347,11 +361,13 @@ export default function App() {
     if (user) {
       if (trimmed) {
         setUserName(trimmed);
+        userNameRef.current = trimmed;
         await firestoreSaveName(user.uid, trimmed);
         const updatedProfile = profile
           ? `Name: ${trimmed}\n${profile}`
           : `Name: ${trimmed}`;
         setProfile(updatedProfile);
+        storage.set('autom_profile', updatedProfile);
         await firestoreSaveProfile(user.uid, updatedProfile);
       }
     }
@@ -380,16 +396,18 @@ export default function App() {
     try {
       const result = await createUserWithEmailAndPassword(auth, authEmail, authPassword);
       await sendEmailVerification(result.user);
-      // Save name directly if provided — no popup needed
+      // Save name right now before onAuthStateChanged fires firestoreLoad
       const trimmedName = authName.trim();
       if (trimmedName) {
         setUserName(trimmedName);
+        userNameRef.current = trimmedName;
+        const initialProfile = `Name: ${trimmedName}`;
+        setProfile(initialProfile);
+        storage.set('autom_profile', initialProfile);
+        // Write to Firestore immediately so firestoreLoad picks it up
         await firestoreSaveName(result.user.uid, trimmedName);
-        const updatedProfile = `Name: ${trimmedName}`;
-        setProfile(updatedProfile);
-        await firestoreSaveProfile(result.user.uid, updatedProfile);
+        await firestoreSaveProfile(result.user.uid, initialProfile);
       } else {
-        // No name provided via form — show the name prompt
         setShowNamePrompt(true);
       }
       setAuthSuccess('Account created! Check your inbox to verify your email.');
@@ -407,7 +425,14 @@ export default function App() {
     if (!authEmail || !authPassword) { setAuthError('Please fill in all fields.'); return; }
     setAuthBusy(true);
     try {
-      await signInWithEmailAndPassword(auth, authEmail, authPassword);
+      const result = await signInWithEmailAndPassword(auth, authEmail, authPassword);
+      // Block unverified users
+      if (!result.user.emailVerified) {
+        await signOut(auth);
+        setAuthError('Please verify your email first. Check your inbox for the verification link.');
+        setAuthBusy(false);
+        return;
+      }
       clearAuthForm();
       setAuthView('options');
     } catch (err: any) {
@@ -432,18 +457,18 @@ export default function App() {
     }
   };
 
-  // Write profile to Firestore whenever it changes (signed-in only)
+  // Write profile to Firestore whenever it changes (signed-in + ready only)
   const profileRef = useRef(profile);
   useEffect(() => {
     profileRef.current = profile;
     const u = userRef.current;
-    if (u) firestoreSaveProfile(u.uid, profile);
+    if (u && firestoreReadyRef.current) firestoreSaveProfile(u.uid, profile);
   }, [profile]);
 
-  // Write history to Firestore whenever it changes (signed-in only)
+  // Write history to Firestore whenever it changes (signed-in + ready only)
   useEffect(() => {
     const u = userRef.current;
-    if (u) firestoreSaveHistory(u.uid, sessionHistory);
+    if (u && firestoreReadyRef.current) firestoreSaveHistory(u.uid, sessionHistory);
   }, [sessionHistory]);
 
   // Unlock AudioContext
@@ -483,8 +508,9 @@ export default function App() {
   };
 
   const getEffectiveName = () => {
-    if (userName) return userName;
-    const m = profile.match(/name[:\s]+([A-Za-z]+)/i) || profile.match(/^([A-Z][a-z]+)\b/);
+    if (userNameRef.current) return userNameRef.current;
+    const p = profileRef.current;
+    const m = p.match(/name[:\s]+([A-Za-z]+)/i) || p.match(/^([A-Z][a-z]+)\b/);
     return m ? m[1] : null;
   };
 
@@ -621,6 +647,8 @@ export default function App() {
     if (/forget everything|wipe memory/i.test(text)) {
       setProfile(''); setHistory([]);
       storage.set('autom_profile', ''); storage.setJSON('autom_history', []);
+      const u = userRef.current;
+      if (u) { firestoreSaveProfile(u.uid, ''); firestoreSaveHistory(u.uid, []); }
       await handleResponseText('Memory wiped. Starting fresh.', true);
       return;
     }
@@ -683,7 +711,7 @@ export default function App() {
       storage.setJSON('autom_history', newHistory.slice(-20));
 
       if (data.profileUpdate?.trim()) {
-        const merged = (profile + '\n' + data.profileUpdate).trim();
+        const merged = (profileRef.current + '\n' + data.profileUpdate).trim();
         setProfile(merged);
         storage.set('autom_profile', merged);
       }
@@ -908,7 +936,13 @@ export default function App() {
 
             {/* Wipe Memory */}
             <button
-              onClick={() => { setProfile(''); setHistory([]); storage.set('autom_profile', ''); storage.setJSON('autom_history', []); setShowSettings(false); }}
+              onClick={() => {
+                setProfile(''); setHistory([]);
+                storage.set('autom_profile', ''); storage.setJSON('autom_history', []);
+                const u = userRef.current;
+                if (u) { firestoreSaveProfile(u.uid, ''); firestoreSaveHistory(u.uid, []); }
+                setShowSettings(false);
+              }}
               className="w-full text-xs font-mono text-red-400/70 border border-red-900/40 rounded py-1.5 hover:bg-red-950/30 transition-colors"
             >
               Wipe Memory
