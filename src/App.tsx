@@ -6,6 +6,10 @@ import {
   onAuthStateChanged,
   signInWithPopup,
   signOut,
+  createUserWithEmailAndPassword,
+  signInWithEmailAndPassword,
+  sendEmailVerification,
+  sendPasswordResetEmail,
   type User,
 } from 'firebase/auth';
 import {
@@ -220,6 +224,15 @@ export default function App() {
   const [nameInput, setNameInput] = useState('');
   const [authBusy, setAuthBusy] = useState(false);
 
+  // ── Email auth state ───────────────────────────────────────────────────────
+  type AuthView = 'options' | 'email-signin' | 'email-signup' | 'forgot';
+  const [authView, setAuthView] = useState<AuthView>('options');
+  const [authEmail, setAuthEmail] = useState('');
+  const [authPassword, setAuthPassword] = useState('');
+  const [authName, setAuthName] = useState('');
+  const [authError, setAuthError] = useState('');
+  const [authSuccess, setAuthSuccess] = useState('');
+
   const pushToTalkRef = useRef(pushToTalk);
   const wakeWordRef = useRef(wakeWord);
   const modeRef = useRef(mode);
@@ -344,6 +357,79 @@ export default function App() {
     }
     setShowNamePrompt(false);
     setNameInput('');
+  };
+
+  // ── Email auth helpers ─────────────────────────────────────────────────────
+  const clearAuthForm = () => { setAuthEmail(''); setAuthPassword(''); setAuthName(''); setAuthError(''); setAuthSuccess(''); };
+
+  const friendlyAuthError = (code: string) => {
+    if (code.includes('email-already-in-use')) return 'An account with this email already exists.';
+    if (code.includes('user-not-found') || code.includes('invalid-credential')) return 'Incorrect email or password.';
+    if (code.includes('wrong-password')) return 'Incorrect password.';
+    if (code.includes('weak-password')) return 'Password must be at least 6 characters.';
+    if (code.includes('invalid-email')) return 'Invalid email address.';
+    if (code.includes('too-many-requests')) return 'Too many attempts. Try again later.';
+    return 'Something went wrong. Try again.';
+  };
+
+  const handleEmailSignUp = async () => {
+    if (authBusy) return;
+    setAuthError(''); setAuthSuccess('');
+    if (!authEmail || !authPassword) { setAuthError('Please fill in email and password.'); return; }
+    setAuthBusy(true);
+    try {
+      const result = await createUserWithEmailAndPassword(auth, authEmail, authPassword);
+      await sendEmailVerification(result.user);
+      // Save name directly if provided — no popup needed
+      const trimmedName = authName.trim();
+      if (trimmedName) {
+        setUserName(trimmedName);
+        await firestoreSaveName(result.user.uid, trimmedName);
+        const updatedProfile = `Name: ${trimmedName}`;
+        setProfile(updatedProfile);
+        await firestoreSaveProfile(result.user.uid, updatedProfile);
+      } else {
+        // No name provided via form — show the name prompt
+        setShowNamePrompt(true);
+      }
+      setAuthSuccess('Account created! Check your inbox to verify your email.');
+      clearAuthForm();
+    } catch (err: any) {
+      setAuthError(friendlyAuthError(err?.code || ''));
+    } finally {
+      setAuthBusy(false);
+    }
+  };
+
+  const handleEmailSignIn = async () => {
+    if (authBusy) return;
+    setAuthError(''); setAuthSuccess('');
+    if (!authEmail || !authPassword) { setAuthError('Please fill in all fields.'); return; }
+    setAuthBusy(true);
+    try {
+      await signInWithEmailAndPassword(auth, authEmail, authPassword);
+      clearAuthForm();
+      setAuthView('options');
+    } catch (err: any) {
+      setAuthError(friendlyAuthError(err?.code || ''));
+    } finally {
+      setAuthBusy(false);
+    }
+  };
+
+  const handleForgotPassword = async () => {
+    if (authBusy) return;
+    setAuthError(''); setAuthSuccess('');
+    if (!authEmail) { setAuthError('Enter your email address first.'); return; }
+    setAuthBusy(true);
+    try {
+      await sendPasswordResetEmail(auth, authEmail);
+      setAuthSuccess('Reset link sent! Check your inbox.');
+    } catch (err: any) {
+      setAuthError(friendlyAuthError(err?.code || ''));
+    } finally {
+      setAuthBusy(false);
+    }
   };
 
   // Write profile to Firestore whenever it changes (signed-in only)
@@ -780,12 +866,12 @@ export default function App() {
                   </div>
                 ) : (
                   <button
-                    onClick={handleGoogleSignIn}
+                    onClick={() => { setShowSettings(false); setAuthView('options'); setSignInCardState('card'); }}
                     disabled={authBusy}
                     className="w-full flex items-center justify-center gap-2 text-xs font-mono text-cyan-300 border border-cyan-800/60 rounded py-1.5 bg-black/40 hover:bg-cyan-950/30 transition-colors disabled:opacity-50"
                   >
                     <LogIn className="w-3.5 h-3.5" />
-                    Sign in with Google
+                    Sign in
                   </button>
                 )}
               </div>
@@ -860,36 +946,230 @@ export default function App() {
         )}
       </div>
 
-      {/* ── Sign-in floating card (bottom center, over background) ── */}
+      {/* ── Auth card ── */}
       {HAS_FIREBASE && !authLoading && !user && signInCardState === 'card' && (
         <div
           className="absolute bottom-safe z-30 left-1/2 -translate-x-1/2 mb-4 w-[calc(100%-2rem)] max-w-sm"
           onClick={e => e.stopPropagation()}
         >
-          <div className="bg-gray-950/90 border border-cyan-900/50 rounded-2xl p-4 shadow-2xl backdrop-blur-sm">
-            <p className="text-cyan-300/80 font-mono text-xs text-center mb-3 tracking-wide">
-              Sign in to remember you across sessions
-            </p>
-            <button
-              onClick={handleGoogleSignIn}
-              disabled={authBusy}
-              className="w-full flex items-center justify-center gap-2 bg-white/10 hover:bg-white/15 text-white font-mono text-sm rounded-xl py-2.5 border border-white/10 transition-colors disabled:opacity-50"
-            >
-              {/* Google G */}
-              <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none">
-                <path d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z" fill="#4285F4"/>
-                <path d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z" fill="#34A853"/>
-                <path d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93l3.66-2.84z" fill="#FBBC05"/>
-                <path d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z" fill="#EA4335"/>
-              </svg>
-              {authBusy ? 'Signing in…' : 'Continue with Google'}
-            </button>
-            <button
-              onClick={() => setSignInCardState('badge')}
-              className="w-full text-center text-cyan-700 font-mono text-xs mt-2 py-1 hover:text-cyan-500 transition-colors"
-            >
-              Skip for now
-            </button>
+          <div className="bg-gray-950 border border-cyan-900/40 rounded-2xl shadow-2xl overflow-hidden">
+
+            {/* Header stripe */}
+            <div className="px-5 pt-5 pb-4 border-b border-cyan-900/30">
+              {authView === 'options' && (
+                <div className="text-center">
+                  <p className="text-cyan-200 font-mono text-sm font-semibold tracking-wide mb-0.5">Welcome to Autom</p>
+                  <p className="text-cyan-700 font-mono text-xs">Sign in to sync your memory across devices</p>
+                </div>
+              )}
+              {authView === 'email-signin' && (
+                <div className="flex items-center gap-3">
+                  <button onClick={() => { clearAuthForm(); setAuthView('options'); }} className="text-cyan-700 hover:text-cyan-400 transition-colors">
+                    <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" /></svg>
+                  </button>
+                  <div>
+                    <p className="text-cyan-200 font-mono text-sm font-semibold">Sign in</p>
+                    <p className="text-cyan-700 font-mono text-xs">with your email and password</p>
+                  </div>
+                </div>
+              )}
+              {authView === 'email-signup' && (
+                <div className="flex items-center gap-3">
+                  <button onClick={() => { clearAuthForm(); setAuthView('options'); }} className="text-cyan-700 hover:text-cyan-400 transition-colors">
+                    <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" /></svg>
+                  </button>
+                  <div>
+                    <p className="text-cyan-200 font-mono text-sm font-semibold">Create account</p>
+                    <p className="text-cyan-700 font-mono text-xs">it's free, no credit card needed</p>
+                  </div>
+                </div>
+              )}
+              {authView === 'forgot' && (
+                <div className="flex items-center gap-3">
+                  <button onClick={() => { clearAuthForm(); setAuthView('email-signin'); }} className="text-cyan-700 hover:text-cyan-400 transition-colors">
+                    <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" /></svg>
+                  </button>
+                  <div>
+                    <p className="text-cyan-200 font-mono text-sm font-semibold">Forgot password?</p>
+                    <p className="text-cyan-700 font-mono text-xs">we'll email you a reset link</p>
+                  </div>
+                </div>
+              )}
+            </div>
+
+            {/* Body */}
+            <div className="px-5 py-4 space-y-2.5">
+
+              {/* ── Options view ── */}
+              {authView === 'options' && (<>
+                <button
+                  onClick={handleGoogleSignIn}
+                  disabled={authBusy}
+                  className="w-full flex items-center justify-center gap-2.5 bg-white/8 hover:bg-white/12 active:bg-white/6 text-white font-mono text-sm rounded-xl py-3 border border-white/10 transition-colors disabled:opacity-40"
+                >
+                  <svg className="w-4 h-4 shrink-0" viewBox="0 0 24 24" fill="none">
+                    <path d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z" fill="#4285F4"/>
+                    <path d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z" fill="#34A853"/>
+                    <path d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93l3.66-2.84z" fill="#FBBC05"/>
+                    <path d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z" fill="#EA4335"/>
+                  </svg>
+                  {authBusy ? 'Connecting…' : 'Continue with Google'}
+                </button>
+
+                <div className="flex items-center gap-3 py-1">
+                  <div className="flex-1 border-t border-cyan-900/40" />
+                  <span className="text-cyan-800 font-mono text-xs tracking-widest">OR</span>
+                  <div className="flex-1 border-t border-cyan-900/40" />
+                </div>
+
+                <button
+                  onClick={() => { clearAuthForm(); setAuthView('email-signin'); }}
+                  className="w-full text-sm font-mono text-cyan-300 bg-cyan-950/30 hover:bg-cyan-900/40 active:bg-cyan-950/50 rounded-xl py-3 border border-cyan-800/40 transition-colors"
+                >Sign in with Email</button>
+
+                <button
+                  onClick={() => { clearAuthForm(); setAuthView('email-signup'); }}
+                  className="w-full text-sm font-mono text-cyan-400 bg-transparent hover:bg-cyan-950/20 rounded-xl py-2.5 border border-cyan-900/30 transition-colors"
+                >Create an account</button>
+              </>)}
+
+              {/* ── Email sign-in view ── */}
+              {authView === 'email-signin' && (<>
+                <div>
+                  <label className="text-cyan-600 font-mono text-xs block mb-1.5">Email</label>
+                  <input
+                    autoFocus
+                    type="email" value={authEmail} onChange={e => setAuthEmail(e.target.value)}
+                    placeholder="you@example.com"
+                    className="w-full bg-black/60 border border-cyan-800/50 focus:border-cyan-500 text-cyan-100 font-mono text-sm rounded-xl px-3.5 py-2.5 outline-none placeholder-cyan-900 transition-colors"
+                  />
+                </div>
+                <div>
+                  <label className="text-cyan-600 font-mono text-xs block mb-1.5">Password</label>
+                  <input
+                    type="password" value={authPassword} onChange={e => setAuthPassword(e.target.value)}
+                    placeholder="••••••••"
+                    onKeyDown={e => e.key === 'Enter' && handleEmailSignIn()}
+                    className="w-full bg-black/60 border border-cyan-800/50 focus:border-cyan-500 text-cyan-100 font-mono text-sm rounded-xl px-3.5 py-2.5 outline-none placeholder-cyan-900 transition-colors"
+                  />
+                </div>
+                <div className="flex justify-end">
+                  <button
+                    onClick={() => { setAuthEmail(authEmail); setAuthPassword(''); setAuthError(''); setAuthSuccess(''); setAuthView('forgot'); }}
+                    className="text-cyan-700 hover:text-cyan-400 font-mono text-xs transition-colors"
+                  >Forgot password?</button>
+                </div>
+                {authError && (
+                  <div className="flex items-start gap-2 bg-red-950/40 border border-red-900/40 rounded-xl px-3 py-2">
+                    <span className="text-red-400 font-mono text-xs leading-relaxed">{authError}</span>
+                  </div>
+                )}
+                {authSuccess && (
+                  <div className="flex items-start gap-2 bg-green-950/40 border border-green-900/40 rounded-xl px-3 py-2">
+                    <span className="text-green-400 font-mono text-xs leading-relaxed">{authSuccess}</span>
+                  </div>
+                )}
+                <button
+                  onClick={handleEmailSignIn} disabled={authBusy}
+                  className="w-full text-sm font-mono text-black bg-cyan-400 hover:bg-cyan-300 active:bg-cyan-500 rounded-xl py-3 font-semibold transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+                >{authBusy ? 'Signing in…' : 'Sign in'}</button>
+                <p className="text-center text-cyan-800 font-mono text-xs pt-1">
+                  No account?{' '}
+                  <button onClick={() => { clearAuthForm(); setAuthView('email-signup'); }} className="text-cyan-500 hover:text-cyan-300 transition-colors">Create one</button>
+                </p>
+              </>)}
+
+              {/* ── Email sign-up view ── */}
+              {authView === 'email-signup' && (<>
+                <div>
+                  <label className="text-cyan-600 font-mono text-xs block mb-1.5">Your name <span className="text-cyan-800">(optional)</span></label>
+                  <input
+                    autoFocus
+                    type="text" value={authName} onChange={e => setAuthName(e.target.value)}
+                    placeholder="What should Autom call you?"
+                    className="w-full bg-black/60 border border-cyan-800/50 focus:border-cyan-500 text-cyan-100 font-mono text-sm rounded-xl px-3.5 py-2.5 outline-none placeholder-cyan-900 transition-colors"
+                  />
+                </div>
+                <div>
+                  <label className="text-cyan-600 font-mono text-xs block mb-1.5">Email</label>
+                  <input
+                    type="email" value={authEmail} onChange={e => setAuthEmail(e.target.value)}
+                    placeholder="you@example.com"
+                    className="w-full bg-black/60 border border-cyan-800/50 focus:border-cyan-500 text-cyan-100 font-mono text-sm rounded-xl px-3.5 py-2.5 outline-none placeholder-cyan-900 transition-colors"
+                  />
+                </div>
+                <div>
+                  <label className="text-cyan-600 font-mono text-xs block mb-1.5">Password <span className="text-cyan-800">(min 6 characters)</span></label>
+                  <input
+                    type="password" value={authPassword} onChange={e => setAuthPassword(e.target.value)}
+                    placeholder="••••••••"
+                    onKeyDown={e => e.key === 'Enter' && handleEmailSignUp()}
+                    className="w-full bg-black/60 border border-cyan-800/50 focus:border-cyan-500 text-cyan-100 font-mono text-sm rounded-xl px-3.5 py-2.5 outline-none placeholder-cyan-900 transition-colors"
+                  />
+                </div>
+                {authError && (
+                  <div className="bg-red-950/40 border border-red-900/40 rounded-xl px-3 py-2">
+                    <span className="text-red-400 font-mono text-xs leading-relaxed">{authError}</span>
+                  </div>
+                )}
+                {authSuccess && (
+                  <div className="bg-green-950/40 border border-green-900/40 rounded-xl px-3 py-2">
+                    <span className="text-green-400 font-mono text-xs leading-relaxed">{authSuccess}</span>
+                  </div>
+                )}
+                <button
+                  onClick={handleEmailSignUp} disabled={authBusy}
+                  className="w-full text-sm font-mono text-black bg-cyan-400 hover:bg-cyan-300 active:bg-cyan-500 rounded-xl py-3 font-semibold transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+                >{authBusy ? 'Creating account…' : 'Create account'}</button>
+                <p className="text-center text-cyan-800 font-mono text-xs pt-1">
+                  Already have an account?{' '}
+                  <button onClick={() => { clearAuthForm(); setAuthView('email-signin'); }} className="text-cyan-500 hover:text-cyan-300 transition-colors">Sign in</button>
+                </p>
+              </>)}
+
+              {/* ── Forgot password view ── */}
+              {authView === 'forgot' && (<>
+                <p className="text-cyan-600 font-mono text-xs leading-relaxed">
+                  Enter the email address linked to your account and we'll send a reset link instantly.
+                </p>
+                <div>
+                  <label className="text-cyan-600 font-mono text-xs block mb-1.5">Email</label>
+                  <input
+                    autoFocus
+                    type="email" value={authEmail} onChange={e => setAuthEmail(e.target.value)}
+                    placeholder="you@example.com"
+                    onKeyDown={e => e.key === 'Enter' && handleForgotPassword()}
+                    className="w-full bg-black/60 border border-cyan-800/50 focus:border-cyan-500 text-cyan-100 font-mono text-sm rounded-xl px-3.5 py-2.5 outline-none placeholder-cyan-900 transition-colors"
+                  />
+                </div>
+                {authError && (
+                  <div className="bg-red-950/40 border border-red-900/40 rounded-xl px-3 py-2">
+                    <span className="text-red-400 font-mono text-xs leading-relaxed">{authError}</span>
+                  </div>
+                )}
+                {authSuccess && (
+                  <div className="bg-green-950/40 border border-green-900/40 rounded-xl px-3 py-2">
+                    <span className="text-green-400 font-mono text-xs leading-relaxed">{authSuccess}</span>
+                  </div>
+                )}
+                <button
+                  onClick={handleForgotPassword} disabled={authBusy}
+                  className="w-full text-sm font-mono text-black bg-cyan-400 hover:bg-cyan-300 active:bg-cyan-500 rounded-xl py-3 font-semibold transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+                >{authBusy ? 'Sending…' : 'Send reset link'}</button>
+              </>)}
+
+            </div>
+
+            {/* Footer */}
+            {authView === 'options' && (
+              <div className="px-5 pb-4">
+                <button
+                  onClick={() => setSignInCardState('badge')}
+                  className="w-full text-center text-cyan-800 hover:text-cyan-600 font-mono text-xs py-2 transition-colors"
+                >Skip for now</button>
+              </div>
+            )}
+
           </div>
         </div>
       )}
@@ -898,7 +1178,7 @@ export default function App() {
       {HAS_FIREBASE && !authLoading && !user && signInCardState === 'badge' && (
         <button
           className="absolute bottom-safe right-1/2 translate-x-1/2 mb-1 z-30 text-xs font-mono text-cyan-700/70 border border-cyan-900/30 bg-black/60 px-3 py-1 rounded-full hover:text-cyan-400 transition-colors"
-          onClick={(e) => { e.stopPropagation(); setSignInCardState('card'); }}
+          onClick={(e) => { e.stopPropagation(); setAuthView('options'); setSignInCardState('card'); }}
         >
           Sign in
         </button>
